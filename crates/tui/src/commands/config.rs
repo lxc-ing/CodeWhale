@@ -7,8 +7,8 @@ use super::CommandResult;
 use crate::client::DeepSeekClient;
 use crate::config::{
     ApiProvider, COMMON_DEEPSEEK_MODELS, Config, DEFAULT_XIAOMI_MIMO_BASE_URL,
-    XIAOMI_MIMO_PAY_AS_YOU_GO_BASE_URL, clear_api_key, effective_home_dir, expand_path,
-    normalize_model_name_for_provider,
+    XIAOMI_MIMO_PAY_AS_YOU_GO_BASE_URL, clear_active_provider_api_key, effective_home_dir,
+    expand_path, normalize_model_name_for_provider,
 };
 use crate::config_ui::{ConfigUiMode, parse_mode};
 use crate::llm_client::LlmClient;
@@ -1600,17 +1600,25 @@ pub fn lsp_command(app: &mut App, arg: Option<&str>) -> CommandResult {
     }
 }
 
-/// Logout - clear API key and return to onboarding
+/// Logout - clear all saved API keys and return to onboarding.
+/// This is NOT provider-scoped — it clears keys for every saved provider.
+/// For single-provider key replacement, use
+/// `codewhale auth clear --provider <id>` and
+/// `codewhale auth set --provider <id>`.
 pub fn logout(app: &mut App) -> CommandResult {
-    match clear_api_key() {
+    let provider_name = app.api_provider.as_str();
+    match clear_active_provider_api_key(provider_name) {
         Ok(()) => {
             app.onboarding = OnboardingState::ApiKey;
             app.onboarding_needs_api_key = true;
             app.api_key_input.clear();
             app.api_key_cursor = 0;
-            CommandResult::message("Logged out. Enter a new API key to continue.")
+            CommandResult::message(format!(
+                "Cleared API key for {provider_name}. \
+                 Use `codewhale auth clear --provider <id>` to clear a different provider."
+            ))
         }
-        Err(e) => CommandResult::error(format!("Failed to clear API key: {e}")),
+        Err(e) => CommandResult::error(format!("Failed to clear API key for {provider_name}: {e}")),
     }
 }
 

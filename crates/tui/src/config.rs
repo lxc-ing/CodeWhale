@@ -5319,6 +5319,69 @@ pub fn clear_api_key() -> Result<()> {
     Ok(())
 }
 
+/// Clear only the active provider's API key from the config file.
+/// Unlike `clear_api_key()` which strips ALL api_key lines, this
+/// removes only the key for the specified provider section.
+pub fn clear_active_provider_api_key(provider: &str) -> Result<()> {
+    let config_path = default_config_path()
+        .context("Failed to resolve config path: home directory not found.")?;
+
+    if !config_path.exists() {
+        return Ok(());
+    }
+
+    let existing = fs::read_to_string(&config_path)?;
+    let mut result = String::new();
+    let target_section = format!("[providers.{}]", provider);
+    let mut in_target_section = false;
+
+    for line in existing.lines() {
+        let trimmed = line.trim();
+
+        // Track which [providers.X] section we're in.
+        if trimmed.starts_with("[providers.") {
+            in_target_section = trimmed == target_section;
+        } else if trimmed.starts_with('[') {
+            in_target_section = false;
+        }
+
+        // For the root section (before any [headers]), clear api_key
+        // only if the provider is "deepseek" (root-level key).
+        let is_root_key = !in_target_section
+            && provider == "deepseek"
+            && trimmed.strip_prefix("api_key").is_some_and(|rest| {
+                let rest = rest.trim_start();
+                rest.is_empty() || rest.starts_with('=')
+            });
+
+        // For a provider section, clear api_key if we're in the target section.
+        let is_provider_key = in_target_section
+            && trimmed.strip_prefix("api_key").is_some_and(|rest| {
+                let rest = rest.trim_start();
+                rest.is_empty() || rest.starts_with('=')
+            });
+
+        if is_root_key || is_provider_key {
+            continue;
+        }
+        result.push_str(line);
+        result.push('\n');
+    }
+
+    write_config_file_secure(&config_path, &result)
+        .with_context(|| format!("Failed to write config to {}", config_path.display()))?;
+    log_sensitive_event(
+        "credential.clear",
+        json!({
+            "backend": "config_file",
+            "config_path": config_path.display().to_string(),
+            "scope": provider,
+        }),
+    );
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

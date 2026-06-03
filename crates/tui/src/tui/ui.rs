@@ -6199,20 +6199,13 @@ async fn execute_command_input(
     // (#343). The on-disk side is handled by clear_api_key() inside
     // commands::config::logout.
     if input.trim().eq_ignore_ascii_case("/logout") {
+        // Only clear the active provider's in-memory API key, not every
+        // provider.  The on-disk clear_api_key() inside commands::config::logout
+        // already removes all saved keys; clearing only the active slot here
+        // prevents surprising side-effects when the user has multiple providers
+        // configured.
         config.api_key = None;
-        if let Some(providers) = config.providers.as_mut() {
-            providers.deepseek.api_key = None;
-            providers.deepseek_cn.api_key = None;
-            providers.nvidia_nim.api_key = None;
-            providers.openai.api_key = None;
-            providers.atlascloud.api_key = None;
-            providers.openrouter.api_key = None;
-            providers.novita.api_key = None;
-            providers.fireworks.api_key = None;
-            providers.sglang.api_key = None;
-            providers.vllm.api_key = None;
-            providers.ollama.api_key = None;
-        }
+        config.provider_config_for_mut(app.api_provider).api_key = None;
         app.api_key_env_only = crate::config::active_provider_uses_env_only_api_key(config);
     }
     apply_command_result(
