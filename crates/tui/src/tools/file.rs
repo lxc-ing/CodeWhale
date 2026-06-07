@@ -115,7 +115,9 @@ impl ToolSpec for ReadFileTool {
                 ));
             }
             Some(v) => usize::try_from(v).map_err(|_| {
-                ToolError::invalid_input("start_line exceeds platform addressable range".to_string())
+                ToolError::invalid_input(
+                    "start_line exceeds platform addressable range".to_string(),
+                )
             })?,
             None => 1,
         };
@@ -301,9 +303,9 @@ fn clean_pdf_text(raw: &str) -> String {
     if any_content {
         let start = out.find(|c: char| c != '\n').unwrap_or(0);
         // Walk back from end to find the last non-newline character.
-        let end = out
-            .rfind(|c: char| c != '\n')
-            .map_or(out.len(), |i| i + out[i..].chars().next().map_or(1, |c| c.len_utf8()));
+        let end = out.rfind(|c: char| c != '\n').map_or(out.len(), |i| {
+            i + out[i..].chars().next().map_or(1, |c| c.len_utf8())
+        });
         out[start..end].to_string()
     } else {
         String::new()
