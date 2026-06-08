@@ -1593,8 +1593,7 @@ fn english(id: MessageId) -> &'static str {
         MessageId::ApprovalIntentLabel => "Intent: ",
         MessageId::ApprovalMoreLines => "  … (+{count} lines)",
         // Sandbox elevation dialog.
-// Sandbox elevation dialog.
-        MessageId::ElevationTitleSandboxDenied => "  ⚠ Sandbox Denied ",
+        MessageId::ElevationTitleSandboxDenied => "  \u{26a0} Sandbox Denied ",
         MessageId::ElevationTitleRequired => " Sandbox Elevation Required ",
         MessageId::ElevationFieldTool => "  Tool: ",
         MessageId::ElevationFieldCmd => "  Cmd:  ",
@@ -1624,7 +1623,6 @@ fn english(id: MessageId) -> &'static str {
             "Retry without sandbox limits; grants unrestricted filesystem and network access"
         }
         MessageId::ElevationOptionAbortDesc => "Cancel this tool execution",
-
 
         MessageId::CtxInspTitle => "Context inspector",
         MessageId::CtxInspSessionContext => "Session Context",
@@ -2133,7 +2131,7 @@ fn vietnamese(id: MessageId) -> Option<&'static str> {
         MessageId::CtxMenuHelp => "Trợ giúp",
         MessageId::CtxMenuHelpDesc => "phím tắt và lệnh",
         MessageId::FanoutCounts => {
-            "{done} đã xong · {running} đang chạy · {failed} thất bại · {pending} chờ"
+            "{done} hoàn thành · {running} đang chạy · {failed} thất bại · {pending} chờ"
         }
 
         // Approval dialog.
@@ -2161,7 +2159,7 @@ fn vietnamese(id: MessageId) -> Option<&'static str> {
         MessageId::ApprovalIntentLabel => "Ý định: ",
         MessageId::ApprovalMoreLines => "  … (+{count} dòng)",
         // Sandbox elevation dialog.
-// Sandbox elevation dialog.
+        // Sandbox elevation dialog.
         MessageId::ElevationTitleSandboxDenied => "  \u{26a0} Sandbox Bị Từ Chối ",
         MessageId::ElevationTitleRequired => " Yêu Cầu Nâng Cấp Sandbox ",
         MessageId::ElevationFieldTool => "  Công cụ: ",
@@ -2192,7 +2190,6 @@ fn vietnamese(id: MessageId) -> Option<&'static str> {
             "Thử lại không giới hạn sandbox; cấp quyền truy cập không hạn chế"
         }
         MessageId::ElevationOptionAbortDesc => "Hủy thực thi công cụ này",
-
 
         MessageId::CtxInspTitle => "Trình kiểm tra ngữ cảnh",
         MessageId::CtxInspSessionContext => "Ngữ cảnh phiên",
@@ -2283,7 +2280,7 @@ fn traditional_chinese(id: MessageId) -> Option<&'static str> {
         MessageId::ApprovalIntentLabel => "意圖：",
         MessageId::ApprovalMoreLines => "  … (還有 {count} 行)",
         // Sandbox elevation dialog.
-// Sandbox elevation dialog.
+        // Sandbox elevation dialog.
         MessageId::ElevationTitleSandboxDenied => "  \u{26a0} 沙箱拒絕 ",
         MessageId::ElevationTitleRequired => " 沙箱提權 ",
         MessageId::ElevationFieldTool => "  工具：",
@@ -2306,7 +2303,6 @@ fn traditional_chinese(id: MessageId) -> Option<&'static str> {
             "無沙箱限制重試（授予無限制的檔案系統和網路訪問權限）"
         }
         MessageId::ElevationOptionAbortDesc => "取消此工具呼叫",
-
 
         MessageId::CtxInspTitle => "上下文檢查器",
         MessageId::CtxInspSessionContext => "會話上下文",
@@ -2808,7 +2804,7 @@ fn japanese(id: MessageId) -> Option<&'static str> {
         MessageId::ApprovalIntentLabel => "意図：",
         MessageId::ApprovalMoreLines => "  … (+{count} 行)",
         // Sandbox elevation dialog.
-// Sandbox elevation dialog.
+        // Sandbox elevation dialog.
         MessageId::ElevationTitleSandboxDenied => "  \u{26a0} サンドボックス拒否 ",
         MessageId::ElevationTitleRequired => " サンドボックス昇格 ",
         MessageId::ElevationFieldTool => "  ツール：",
@@ -2837,7 +2833,6 @@ fn japanese(id: MessageId) -> Option<&'static str> {
             "サンドボックス制限なしで再試行（ファイルシステムとネットワークへの無制限アクセス）"
         }
         MessageId::ElevationOptionAbortDesc => "このツール実行をキャンセル",
-
 
         MessageId::CtxInspTitle => "コンテキストインスペクタ",
         MessageId::CtxInspSessionContext => "セッションコンテキスト",
@@ -3277,7 +3272,7 @@ fn chinese_simplified(id: MessageId) -> Option<&'static str> {
         MessageId::ApprovalIntentLabel => "意图：",
         MessageId::ApprovalMoreLines => "  … (还有 {count} 行)",
         // Sandbox elevation dialog.
-// Sandbox elevation dialog.
+        // Sandbox elevation dialog.
         MessageId::ElevationTitleSandboxDenied => "  \u{26a0} 沙箱拒绝 ",
         MessageId::ElevationTitleRequired => " 沙箱提权 ",
         MessageId::ElevationFieldTool => "  工具：",
@@ -3300,7 +3295,6 @@ fn chinese_simplified(id: MessageId) -> Option<&'static str> {
             "无沙箱限制重试（授予无限制的文件系统和网络访问权限）"
         }
         MessageId::ElevationOptionAbortDesc => "取消此工具调用",
-
 
         MessageId::CtxInspTitle => "上下文检查器",
         MessageId::CtxInspSessionContext => "会话上下文",
@@ -3816,7 +3810,7 @@ fn portuguese_brazil(id: MessageId) -> Option<&'static str> {
         MessageId::ApprovalIntentLabel => "Intenção: ",
         MessageId::ApprovalMoreLines => "  … (+{count} linhas)",
         // Sandbox elevation dialog.
-// Sandbox elevation dialog.
+        // Sandbox elevation dialog.
         MessageId::ElevationTitleSandboxDenied => "  \u{26a0} Sandbox Negado ",
         MessageId::ElevationTitleRequired => " Elevação de Sandbox Necessária ",
         MessageId::ElevationFieldTool => "  Ferramenta: ",
@@ -3847,7 +3841,6 @@ fn portuguese_brazil(id: MessageId) -> Option<&'static str> {
             "Retry sem limites de sandbox; concede acesso irrestrito ao sistema de arquivos e rede"
         }
         MessageId::ElevationOptionAbortDesc => "Cancelar esta execução de ferramenta",
-
 
         MessageId::CtxInspTitle => "Inspetor de contexto",
         MessageId::CtxInspSessionContext => "Contexto da sessão",
@@ -4377,7 +4370,7 @@ fn spanish_latin_america(id: MessageId) -> Option<&'static str> {
         MessageId::ApprovalIntentLabel => "Intención: ",
         MessageId::ApprovalMoreLines => "  … (+{count} líneas)",
         // Sandbox elevation dialog.
-// Sandbox elevation dialog.
+        // Sandbox elevation dialog.
         MessageId::ElevationTitleSandboxDenied => "  \u{26a0} Sandbox Denegado ",
         MessageId::ElevationTitleRequired => " Elevación de Sandbox Requerida ",
         MessageId::ElevationFieldTool => "  Herramienta: ",
@@ -4408,7 +4401,6 @@ fn spanish_latin_america(id: MessageId) -> Option<&'static str> {
             "Reintenta sin límites de sandbox; concede acceso sin restricciones al sistema de archivos y red"
         }
         MessageId::ElevationOptionAbortDesc => "Cancelar esta ejecución de herramienta",
-
 
         MessageId::CtxInspTitle => "Inspector de contexto",
         MessageId::CtxInspSessionContext => "Contexto de la sesión",

@@ -1026,7 +1026,7 @@ pub enum ElevationOption {
 
 impl ElevationOption {
     /// Get the display label for this option.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn label(&self) -> &'static str {
         match self {
             ElevationOption::WithNetwork => "Allow outbound network",
@@ -1037,7 +1037,7 @@ impl ElevationOption {
     }
 
     /// Get a short description.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn description(&self) -> &'static str {
         match self {
             ElevationOption::WithNetwork => {
@@ -2166,6 +2166,10 @@ mod tests {
             "Reason:",
             "Impactifapproved",
             "Choosehowtoproceed",
+            "Allowoutboundnetwork",
+            "Allowextrawriteaccess",
+            "Fullaccess",
+            "Abort",
         ];
         for artifact in &en_artifacts {
             assert!(
@@ -2173,6 +2177,58 @@ mod tests {
                 "English leak '{artifact}' in zh rendering:\n{joined}"
             );
         }
+    }
+
+    #[test]
+    fn test_elevation_render_ja_has_translated_copy() {
+        let view = ElevationView::new(elevation_shell_request(), Locale::Ja);
+        let lines = render_elevation_lines(&view, 70, 22);
+        let joined = compact_elevation_text(&lines);
+        assert!(
+            joined.contains("サンドボックス拒否"),
+            "missing ja title:\n{joined}"
+        );
+        assert!(
+            joined.contains("ツール："),
+            "missing ja tool label:\n{joined}"
+        );
+        assert!(
+            joined.contains("コマンド："),
+            "missing ja cmd label:\n{joined}"
+        );
+        assert!(
+            joined.contains("理由："),
+            "missing ja reason label:\n{joined}"
+        );
+        for eng in &["SandboxDenied", "Tool:", "Cmd:", "Reason:"] as &[&str] {
+            assert!(
+                !joined.contains(eng),
+                "English leak '{eng}' in ja:\n{joined}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_elevation_render_zh_hant_has_translated_copy() {
+        let view = ElevationView::new(elevation_shell_request(), Locale::ZhHant);
+        let lines = render_elevation_lines(&view, 70, 22);
+        let joined = compact_elevation_text(&lines);
+        assert!(
+            joined.contains("沙箱拒絕"),
+            "missing zh-Hant title:\n{joined}"
+        );
+        assert!(
+            joined.contains("工具："),
+            "missing zh-Hant tool label:\n{joined}"
+        );
+        assert!(
+            joined.contains("命令："),
+            "missing zh-Hant cmd label:\n{joined}"
+        );
+        assert!(
+            joined.contains("原因："),
+            "missing zh-Hant reason label:\n{joined}"
+        );
     }
 
     // ========================================================================
