@@ -1248,12 +1248,22 @@ pub(super) fn apply_reasoning_effort(
                 });
             }
             ApiProvider::Openai
-            | ApiProvider::Atlascloud
             | ApiProvider::WanjieArk
             | ApiProvider::Arcee
-            | ApiProvider::Huggingface
-            | ApiProvider::Moonshot
-            | ApiProvider::Ollama => {}
+            | ApiProvider::Huggingface => {}
+            ApiProvider::Atlascloud => {
+                // #3024: Atlascloud serves DeepSeek models — speak the
+                // DeepSeek dialect instead of silently dropping the effort.
+                body["thinking"] = json!({ "type": "disabled" });
+            }
+            ApiProvider::Moonshot => {
+                // #3024: Kimi models accept thinking enable/disable.
+                body["thinking"] = json!({ "type": "disabled" });
+            }
+            ApiProvider::Ollama => {
+                // #3024: Ollama OpenAI-compat endpoint accepts think param.
+                body["think"] = json!(false);
+            }
             ApiProvider::NvidiaNim => {
                 body["chat_template_kwargs"] = json!({
                     "thinking": false,
@@ -1312,11 +1322,21 @@ pub(super) fn apply_reasoning_effort(
                 body["reasoning_effort"] = json!(value);
             }
             ApiProvider::Openai
-            | ApiProvider::Atlascloud
             | ApiProvider::WanjieArk
-            | ApiProvider::Moonshot
-            | ApiProvider::Ollama
             | ApiProvider::OpenaiCodex => {}
+            ApiProvider::Atlascloud => {
+                // #3024: Atlascloud serves DeepSeek models.
+                body["reasoning_effort"] = json!("high");
+                body["thinking"] = json!({ "type": "enabled" });
+            }
+            ApiProvider::Moonshot => {
+                // #3024: Kimi models accept thinking enable.
+                body["thinking"] = json!({ "type": "enabled" });
+            }
+            ApiProvider::Ollama => {
+                // #3024: Ollama think param.
+                body["think"] = json!(true);
+            }
             ApiProvider::NvidiaNim => {
                 body["chat_template_kwargs"] = json!({
                     "thinking": true,
@@ -1356,11 +1376,21 @@ pub(super) fn apply_reasoning_effort(
                 body["reasoning_effort"] = json!("high");
             }
             ApiProvider::Openai
-            | ApiProvider::Atlascloud
             | ApiProvider::WanjieArk
-            | ApiProvider::Moonshot
-            | ApiProvider::Ollama
             | ApiProvider::OpenaiCodex => {}
+            ApiProvider::Atlascloud => {
+                // #3024: Atlascloud serves DeepSeek models.
+                body["reasoning_effort"] = json!("high");
+                body["thinking"] = json!({ "type": "enabled" });
+            }
+            ApiProvider::Moonshot => {
+                // #3024: Kimi models accept thinking enable.
+                body["thinking"] = json!({ "type": "enabled" });
+            }
+            ApiProvider::Ollama => {
+                // #3024: Ollama think param.
+                body["think"] = json!(true);
+            }
             ApiProvider::NvidiaNim => {
                 body["chat_template_kwargs"] = json!({
                     "thinking": true,
