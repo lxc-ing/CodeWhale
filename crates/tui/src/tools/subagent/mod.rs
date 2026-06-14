@@ -39,6 +39,7 @@ use crate::tools::spec::{
 };
 use crate::tools::todo::{SharedTodoList, TodoList};
 use crate::utils::spawn_supervised;
+use crate::worker_profile::{ModelRoute, ToolScope, WorkerRuntimeProfile};
 
 pub mod mailbox;
 #[allow(unused_imports)]
@@ -691,6 +692,8 @@ pub struct AgentWorkerSpec {
     pub context_mode: String,
     pub fork_context: bool,
     pub tool_profile: AgentWorkerToolProfile,
+    #[serde(default)]
+    pub runtime_profile: WorkerRuntimeProfile,
     pub max_steps: u32,
     pub spawn_depth: u32,
     pub max_spawn_depth: u32,
@@ -1056,8 +1059,57 @@ fn normalize_worker_spec(mut spec: AgentWorkerSpec) -> AgentWorkerSpec {
     spec
 }
 
+fn worker_tool_scope(tool_profile: &AgentWorkerToolProfile) -> ToolScope {
+    match tool_profile {
+        AgentWorkerToolProfile::Inherited => ToolScope::Inherit,
+        AgentWorkerToolProfile::Explicit(tools) => ToolScope::Explicit(tools.clone()),
+    }
+}
+
+fn worker_profile_from_spec(spec: &AgentWorkerSpec) -> WorkerRuntimeProfile {
+    let mut profile = WorkerRuntimeProfile::for_role(spec.agent_type.clone());
+    profile.tools = worker_tool_scope(&spec.tool_profile);
+    profile.model = ModelRoute::Fixed(spec.model.clone());
+    profile.max_spawn_depth = spec.max_spawn_depth.saturating_sub(spec.spawn_depth);
+    profile.background = true;
+    profile
+}
+
+fn worker_model_route_for_spawn(
+    parent_runtime: &SubAgentRuntime,
+    effective_model: &str,
+    explicit_model: bool,
+) -> ModelRoute {
+    if explicit_model {
+        ModelRoute::Fixed(effective_model.to_string())
+    } else if parent_runtime.auto_model {
+        ModelRoute::Auto
+    } else {
+        ModelRoute::Inherit
+    }
+}
+
+fn worker_profile_for_spawn(
+    runtime: &SubAgentRuntime,
+    agent_type: &SubAgentType,
+    tool_profile: &AgentWorkerToolProfile,
+    effective_model: &str,
+    model_route: Option<ModelRoute>,
+) -> WorkerRuntimeProfile {
+    let mut requested = WorkerRuntimeProfile::for_role(agent_type.clone());
+    requested.tools = worker_tool_scope(tool_profile);
+    requested.model = model_route.unwrap_or_else(|| ModelRoute::Fixed(effective_model.to_string()));
+    requested.provider = Some(runtime.client.api_provider().as_str().to_string());
+    requested.max_spawn_depth = runtime.max_spawn_depth.saturating_sub(runtime.spawn_depth);
+    requested.background = true;
+    runtime.worker_profile.derive_child(&requested)
+}
+
 fn normalize_worker_record(mut record: AgentWorkerRecord) -> AgentWorkerRecord {
     record.spec = normalize_worker_spec(record.spec);
+    if record.spec.runtime_profile == WorkerRuntimeProfile::default() {
+        record.spec.runtime_profile = worker_profile_from_spec(&record.spec);
+    }
     let run_id = agent_worker_run_id(&record.spec);
     if record.actor_kind.is_empty() {
         record.actor_kind = default_subagent_actor_kind();
@@ -1115,6 +1167,7 @@ fn run_git(workspace: &Path, args: &[&str]) -> Option<String> {
 pub(crate) struct SubAgentSpawnOptions {
     pub name: Option<String>,
     pub model: Option<String>,
+    pub model_route: Option<ModelRoute>,
     pub nickname: Option<String>,
     pub fork_context: bool,
 }
@@ -1316,6 +1369,10 @@ pub struct SubAgentRuntime {
     pub role_models: HashMap<String, String>,
     pub context: ToolContext,
     pub allow_shell: bool,
+    /// Capability contract inherited by descendants. `agent_open` derives a
+    /// child profile from this before registering the worker record so parent,
+    /// sub-agent, and fleet projections share one worker contract.
+    pub worker_profile: WorkerRuntimeProfile,
     pub event_tx: Option<mpsc::Sender<Event>>,
     /// Manager handle so children can recurse via `agent_spawn`. All agents
     /// at every depth share the same manager.
@@ -1380,6 +1437,7 @@ impl SubAgentRuntime {
             role_models: HashMap::new(),
             context,
             allow_shell,
+            worker_profile: WorkerRuntimeProfile::for_role(SubAgentType::General),
             event_tx,
             manager,
             spawn_depth: 0,
@@ -1533,6 +1591,7 @@ impl SubAgentRuntime {
             role_models: self.role_models.clone(),
             context: child_context,
             allow_shell: self.allow_shell,
+            worker_profile: self.worker_profile.clone(),
             event_tx: self.event_tx.clone(),
             manager: self.manager.clone(),
             spawn_depth: self.spawn_depth + 1,
@@ -2223,6 +2282,18 @@ impl SubAgentManager {
         let agent_id = agent.id.clone();
         let started_at = agent.started_at;
         let max_steps = self.max_steps;
+        let tool_profile = match tools.clone() {
+            Some(tools) => AgentWorkerToolProfile::Explicit(tools),
+            None => AgentWorkerToolProfile::Inherited,
+        };
+        let runtime_profile = worker_profile_for_spawn(
+            &runtime,
+            &agent_type,
+            &tool_profile,
+            &agent.model,
+            options.model_route.clone(),
+        );
+        runtime.worker_profile = runtime_profile.clone();
         let worker_spec = AgentWorkerSpec {
             worker_id: agent_id.clone(),
             run_id: agent_id.clone(),
@@ -2241,10 +2312,8 @@ impl SubAgentManager {
             }
             .to_string(),
             fork_context: options.fork_context,
-            tool_profile: match tools.clone() {
-                Some(tools) => AgentWorkerToolProfile::Explicit(tools),
-                None => AgentWorkerToolProfile::Inherited,
-            },
+            tool_profile,
+            runtime_profile,
             max_steps,
             spawn_depth: runtime.spawn_depth,
             max_spawn_depth: runtime.max_spawn_depth,
@@ -3518,6 +3587,7 @@ impl ToolSpec for AgentSpawnTool {
                 &spawn_request.agent_type,
             )?,
         };
+        let configured_model_was_explicit = configured_model.is_some();
 
         // Cache-aware resident mode (#529): prepend file contents to the prompt
         // so the child's prefix is byte-stable for DeepSeek prefix caching.
@@ -3564,6 +3634,11 @@ impl ToolSpec for AgentSpawnTool {
         child_runtime.reasoning_effort = route.reasoning_effort.clone();
         child_runtime.reasoning_effort_auto = false;
         let effective_model = route.model;
+        let model_route = worker_model_route_for_spawn(
+            &self.runtime,
+            &effective_model,
+            configured_model_was_explicit,
+        );
 
         let mut manager = self.manager.write().await;
 
@@ -3578,6 +3653,7 @@ impl ToolSpec for AgentSpawnTool {
                 SubAgentSpawnOptions {
                     name: spawn_request.session_name.clone(),
                     model: Some(effective_model),
+                    model_route: Some(model_route),
                     nickname: None,
                     fork_context: spawn_request.fork_context,
                 },

@@ -1,4 +1,5 @@
 use super::*;
+use crate::worker_profile::ShellPolicy;
 use axum::{Json, Router, routing::post};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -32,6 +33,13 @@ fn make_snapshot(status: SubAgentStatus) -> SubAgentResult {
 }
 
 fn make_worker_spec(worker_id: &str, workspace: PathBuf) -> AgentWorkerSpec {
+    let tool_profile =
+        AgentWorkerToolProfile::Explicit(vec!["read_file".to_string(), "grep_files".to_string()]);
+    let mut runtime_profile = WorkerRuntimeProfile::for_role(SubAgentType::Explore);
+    runtime_profile.tools =
+        ToolScope::Explicit(vec!["read_file".to_string(), "grep_files".to_string()]);
+    runtime_profile.model = ModelRoute::Fixed("deepseek-v4-flash".to_string());
+    runtime_profile.max_spawn_depth = DEFAULT_MAX_SPAWN_DEPTH.saturating_sub(1);
     AgentWorkerSpec {
         worker_id: worker_id.to_string(),
         run_id: worker_id.to_string(),
@@ -45,10 +53,8 @@ fn make_worker_spec(worker_id: &str, workspace: PathBuf) -> AgentWorkerSpec {
         git_branch: None,
         context_mode: "fresh".to_string(),
         fork_context: false,
-        tool_profile: AgentWorkerToolProfile::Explicit(vec![
-            "read_file".to_string(),
-            "grep_files".to_string(),
-        ]),
+        tool_profile,
+        runtime_profile,
         max_steps: 8,
         spawn_depth: 1,
         max_spawn_depth: DEFAULT_MAX_SPAWN_DEPTH,
@@ -98,6 +104,16 @@ fn headless_worker_record_tracks_lifecycle_without_tui_projection() {
         record.spec.tool_profile,
         AgentWorkerToolProfile::Explicit(vec!["read_file".to_string(), "grep_files".to_string()])
     );
+    assert_eq!(record.spec.runtime_profile.role, SubAgentType::Explore);
+    assert!(!record.spec.runtime_profile.permissions.write);
+    assert_eq!(
+        record.spec.runtime_profile.tools,
+        ToolScope::Explicit(vec!["read_file".to_string(), "grep_files".to_string()])
+    );
+    assert_eq!(
+        record.spec.runtime_profile.model,
+        ModelRoute::Fixed("deepseek-v4-flash".to_string())
+    );
     assert_eq!(record.result_summary.as_deref(), Some("worker summary"));
     assert_eq!(record.steps_taken, 1);
     assert_eq!(record.follow_up.tool, "agent_eval");
@@ -132,6 +148,40 @@ fn headless_worker_record_tracks_lifecycle_without_tui_projection() {
             .events
             .iter()
             .any(|event| event.tool_name.as_deref() == Some("read_file"))
+    );
+}
+
+#[test]
+fn agent_open_worker_profile_derives_from_parent_without_escalation() {
+    let mut runtime = stub_runtime();
+    runtime.worker_profile = WorkerRuntimeProfile::for_role(SubAgentType::Explore);
+    runtime.spawn_depth = 1;
+    runtime.max_spawn_depth = DEFAULT_MAX_SPAWN_DEPTH;
+    let tool_profile =
+        AgentWorkerToolProfile::Explicit(vec!["read_file".to_string(), "write_file".to_string()]);
+
+    let profile = worker_profile_for_spawn(
+        &runtime,
+        &SubAgentType::Implementer,
+        &tool_profile,
+        "deepseek-v4-pro",
+        Some(ModelRoute::Fixed("deepseek-v4-pro".to_string())),
+    );
+
+    assert_eq!(profile.role, SubAgentType::Implementer);
+    assert!(
+        !profile.permissions.write,
+        "child cannot gain write permission from a read-only parent profile"
+    );
+    assert_eq!(profile.shell, ShellPolicy::ReadOnly);
+    assert_eq!(profile.max_spawn_depth, DEFAULT_MAX_SPAWN_DEPTH - 1);
+    assert_eq!(
+        profile.model,
+        ModelRoute::Fixed("deepseek-v4-pro".to_string())
+    );
+    assert_eq!(
+        profile.tools,
+        ToolScope::Explicit(vec!["read_file".to_string(), "write_file".to_string()])
     );
 }
 
@@ -3015,6 +3065,7 @@ fn stub_runtime() -> SubAgentRuntime {
         role_models: std::collections::HashMap::new(),
         context,
         allow_shell: true,
+        worker_profile: WorkerRuntimeProfile::for_role(SubAgentType::General),
         event_tx: None,
         manager: new_shared_subagent_manager(workspace, 5),
         spawn_depth: 0,

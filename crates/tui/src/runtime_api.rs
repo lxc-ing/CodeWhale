@@ -4208,6 +4208,7 @@ mod tests {
             AgentWorkerRecord, AgentWorkerSpec, AgentWorkerStatus, AgentWorkerToolProfile,
             SubAgentType,
         };
+        use crate::worker_profile::{ModelRoute, ToolScope, WorkerRuntimeProfile};
         use std::collections::VecDeque;
 
         let root =
@@ -4230,6 +4231,14 @@ mod tests {
                 context_mode: "fresh".to_string(),
                 fork_context: false,
                 tool_profile: AgentWorkerToolProfile::Explicit(vec!["read_file".to_string()]),
+                runtime_profile: {
+                    let mut profile = WorkerRuntimeProfile::for_role(SubAgentType::Verifier);
+                    profile.tools = ToolScope::Explicit(vec!["read_file".to_string()]);
+                    profile.model = ModelRoute::Fixed("deepseek-v4-flash".to_string());
+                    profile.max_spawn_depth =
+                        crate::tools::subagent::DEFAULT_MAX_SPAWN_DEPTH.saturating_sub(1);
+                    profile
+                },
                 max_steps: 4,
                 spawn_depth: 1,
                 max_spawn_depth: crate::tools::subagent::DEFAULT_MAX_SPAWN_DEPTH,
