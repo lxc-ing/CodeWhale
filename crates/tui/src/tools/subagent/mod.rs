@@ -11,7 +11,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex, RwLock, Semaphore};
@@ -1992,6 +1992,7 @@ impl SubAgentManager {
         let Some(path) = self.state_path.as_ref() else {
             return Ok(());
         };
+        let path = checked_subagent_state_path(&self.workspace, path)?;
         let now_ms = epoch_millis_now();
         let mut agents = Vec::with_capacity(self.agents.len());
         for agent in self.agents.values() {
@@ -2026,7 +2027,7 @@ impl SubAgentManager {
             agents,
             workers: self.sorted_worker_records(),
         };
-        write_json_atomic(path, &payload)
+        write_json_atomic(&path, &payload)
     }
 
     fn persist_state_best_effort(&self) {
@@ -2086,11 +2087,12 @@ impl SubAgentManager {
         let Some(path) = self.state_path.as_ref() else {
             return Ok(());
         };
+        let path = checked_subagent_state_path(&self.workspace, path)?;
         if !path.exists() {
             return Ok(());
         }
 
-        let raw = fs::read_to_string(path)?;
+        let raw = fs::read_to_string(&path)?;
         let state = serde_json::from_str::<PersistedSubAgentState>(&raw)?;
         if state.schema_version != SUBAGENT_STATE_SCHEMA_VERSION {
             return Err(anyhow!(
@@ -3306,6 +3308,7 @@ async fn subagent_session_projection(
 }
 
 fn default_state_path(workspace: &Path) -> PathBuf {
+    let workspace = normalize_subagent_workspace(workspace);
     // Prefer .codewhale, fall back to .deepseek for project-local state
     let primary = workspace.join(".codewhale").join("state");
     if primary.exists() {
@@ -3315,6 +3318,91 @@ fn default_state_path(workspace: &Path) -> PathBuf {
         .join(".deepseek")
         .join("state")
         .join(SUBAGENT_STATE_FILE)
+}
+
+fn checked_subagent_state_path(workspace: &Path, path: &Path) -> Result<PathBuf> {
+    let workspace = normalize_subagent_workspace(workspace);
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        workspace.join(path)
+    };
+    let file_name = absolute
+        .file_name()
+        .ok_or_else(|| anyhow!("sub-agent state path must include a file name"))?;
+    let parent = absolute
+        .parent()
+        .ok_or_else(|| anyhow!("sub-agent state path must include a parent directory"))?;
+    let parent = match parent.canonicalize() {
+        Ok(parent) => parent,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => normalize_path_components(parent),
+        Err(err) => return Err(err.into()),
+    };
+    let state_path = parent.join(file_name);
+    if !state_path.starts_with(&workspace) {
+        return Err(anyhow!(
+            "sub-agent state path must stay within workspace: {}",
+            state_path.display()
+        ));
+    }
+    reject_workspace_relative_symlinks(&workspace, &state_path)?;
+    Ok(state_path)
+}
+
+fn normalize_subagent_workspace(workspace: &Path) -> PathBuf {
+    if let Ok(canonical) = workspace.canonicalize() {
+        return canonical;
+    }
+    let absolute = if workspace.is_absolute() {
+        workspace.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(workspace)
+    };
+    normalize_path_components(&absolute)
+}
+
+fn normalize_path_components(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir => normalized.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::Normal(part) => normalized.push(part),
+        }
+    }
+    if normalized.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        normalized
+    }
+}
+
+fn reject_workspace_relative_symlinks(workspace: &Path, path: &Path) -> Result<()> {
+    let relative = path.strip_prefix(workspace).map_err(|_| {
+        anyhow!(
+            "sub-agent state path must stay within workspace: {}",
+            path.display()
+        )
+    })?;
+    let mut current = workspace.to_path_buf();
+    for component in relative.components() {
+        current.push(component.as_os_str());
+        let Ok(metadata) = fs::symlink_metadata(&current) else {
+            continue;
+        };
+        if metadata.file_type().is_symlink() {
+            return Err(anyhow!(
+                "sub-agent state path must not traverse symlinks: {}",
+                current.display()
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn epoch_millis_now() -> u64 {
@@ -3335,7 +3423,12 @@ fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<()> {
         fs::create_dir_all(parent)?;
     }
     let payload = serde_json::to_string_pretty(value)?;
-    let tmp_path = path.with_extension("tmp");
+    reject_workspace_relative_symlinks(path.parent().unwrap_or_else(|| Path::new(".")), path)?;
+    let tmp_path = path.with_extension(format!("{}.tmp", std::process::id()));
+    reject_workspace_relative_symlinks(
+        tmp_path.parent().unwrap_or_else(|| Path::new(".")),
+        &tmp_path,
+    )?;
     fs::write(&tmp_path, payload)?;
     fs::rename(tmp_path, path)?;
     Ok(())

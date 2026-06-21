@@ -2544,6 +2544,54 @@ fn persist_and_reload_preserves_checkpoint_for_interrupted_running_agent() {
     assert_eq!(message_text(&checkpoint.messages[1]), "partial progress");
 }
 
+#[cfg(unix)]
+#[test]
+fn load_state_rejects_symlinked_state_file() {
+    let tmp = tempdir().expect("tempdir");
+    let target = tmp.path().join("outside-state.json");
+    let link = tmp.path().join(SUBAGENT_STATE_FILE);
+    std::fs::write(
+        &target,
+        serde_json::json!({
+            "schema_version": SUBAGENT_STATE_SCHEMA_VERSION,
+            "agents": [],
+            "workers": []
+        })
+        .to_string(),
+    )
+    .expect("write target");
+    std::os::unix::fs::symlink(&target, &link).expect("symlink state");
+
+    let mut manager = SubAgentManager::new(tmp.path().to_path_buf(), 1).with_state_path(link);
+    let err = manager
+        .load_state()
+        .expect_err("symlinked state should fail");
+    assert!(format!("{err:#}").contains("must not traverse symlinks"));
+}
+
+#[cfg(unix)]
+#[test]
+fn persist_state_rejects_symlinked_state_directory() {
+    let tmp = tempdir().expect("tempdir");
+    let workspace = tmp.path().join("workspace");
+    let outside = tmp.path().join("outside-state");
+    let codewhale_dir = workspace.join(".codewhale");
+    let state_dir = codewhale_dir.join("state");
+    std::fs::create_dir_all(&codewhale_dir).expect("mkdir codewhale");
+    std::fs::create_dir_all(&outside).expect("mkdir outside");
+    std::os::unix::fs::symlink(&outside, &state_dir).expect("symlink state dir");
+
+    let state_path = default_state_path(&workspace);
+    let manager = SubAgentManager::new(workspace, 1).with_state_path(state_path);
+    let err = manager
+        .persist_state()
+        .expect_err("symlinked state directory should fail");
+    assert!(
+        format!("{err:#}").contains("must stay within workspace")
+            || format!("{err:#}").contains("must not traverse symlinks")
+    );
+}
+
 #[test]
 fn test_interrupted_status_name_and_summary() {
     let snapshot = make_snapshot(SubAgentStatus::Interrupted(
