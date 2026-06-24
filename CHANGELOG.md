@@ -927,7 +927,7 @@ folds in several community contributions.
   `deepseek-ai/DeepSeek-V4-Flash`, TUI provider-picker/auth/capability support,
   and CLI `auth list`/`auth status` coverage.
 - **Model catalog updates.** Added Qwen 3.7 Max (`qwen/qwen3.7-max`), MiniMax 2.7
-  (`minimax/minimax-2.7`), and NVIDIA Nemotron 3 Ultra (`nvidia/nemotron-3-ultra`)
+  (`minimax/minimax-m2.7`), and NVIDIA Nemotron 3 Ultra (`nvidia/nemotron-3-ultra`)
   on OpenRouter.
 - **OpenAI Codex (ChatGPT) provider — experimental.** Added an `openai-codex`
   provider that reuses an existing ChatGPT/Codex CLI OAuth login. The access

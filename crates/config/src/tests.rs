@@ -4241,7 +4241,7 @@ fn openrouter_provider_normalizes_recent_large_model_aliases() {
         ("kimi", OPENROUTER_KIMI_K2_7_CODE_MODEL),
         ("kimi-k2.6", OPENROUTER_KIMI_K2_6_MODEL),
         ("minimax-m3", OPENROUTER_MINIMAX_M3_MODEL),
-        ("minimax-2.7", OPENROUTER_MINIMAX_2_7_MODEL),
+        ("minimax-2.7", OPENROUTER_MINIMAX_M2_7_MODEL),
         ("gemma-4-31b-it", OPENROUTER_GEMMA_4_31B_MODEL),
         ("glm-5.1", OPENROUTER_GLM_5_1_MODEL),
         ("glm-5.2", OPENROUTER_GLM_5_2_MODEL),

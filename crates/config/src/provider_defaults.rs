@@ -36,7 +36,7 @@ pub(crate) const OPENROUTER_GLM_5_2_MODEL: &str = "z-ai/glm-5.2";
 pub(crate) const OPENROUTER_KIMI_K2_7_CODE_MODEL: &str = "moonshotai/kimi-k2.7-code";
 pub(crate) const OPENROUTER_KIMI_K2_6_MODEL: &str = "moonshotai/kimi-k2.6";
 pub(crate) const OPENROUTER_MINIMAX_M3_MODEL: &str = "minimax/minimax-m3";
-pub(crate) const OPENROUTER_MINIMAX_2_7_MODEL: &str = "minimax/minimax-2.7";
+pub(crate) const OPENROUTER_MINIMAX_M2_7_MODEL: &str = "minimax/minimax-m2.7";
 pub(crate) const OPENROUTER_NEMOTRON_3_NANO_OMNI_MODEL: &str =
     "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free";
 pub(crate) const OPENROUTER_QWEN_3_6_FLASH_MODEL: &str = "qwen/qwen3.6-flash";

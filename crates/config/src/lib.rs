@@ -2398,13 +2398,13 @@ fn canonical_openrouter_recent_model_id(model: &str) -> Option<&'static str> {
         OPENROUTER_MINIMAX_M3_MODEL | "minimax-m3" | "minimax-m-3" => {
             Some(OPENROUTER_MINIMAX_M3_MODEL)
         }
-        OPENROUTER_MINIMAX_2_7_MODEL
+        OPENROUTER_MINIMAX_M2_7_MODEL
         | "minimax-2.7"
         | "minimax-2-7"
         | "minimax-m2.7"
         | "minimax-m2-7"
         | "minimax-m-2.7"
-        | "minimax-m-2-7" => Some(OPENROUTER_MINIMAX_2_7_MODEL),
+        | "minimax-m-2-7" => Some(OPENROUTER_MINIMAX_M2_7_MODEL),
         OPENROUTER_NEMOTRON_3_NANO_OMNI_MODEL
         | "nemotron-3-nano-omni"
         | "nemotron-3-nano-omni-reasoning" => Some(OPENROUTER_NEMOTRON_3_NANO_OMNI_MODEL),
