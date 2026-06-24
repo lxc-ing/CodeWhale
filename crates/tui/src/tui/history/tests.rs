@@ -389,7 +389,7 @@ fn render_checklist_change_card_shows_only_changed_item() {
         "should not show other items: {change_line:?}"
     );
 
-    // The summary line carries the count + Alt+V hint.
+    // The summary line carries the count + explicit details-pager hint.
     let summary_line: String = lines
         .last()
         .unwrap()
@@ -398,7 +398,10 @@ fn render_checklist_change_card_shows_only_changed_item() {
         .map(|s| s.content.as_ref())
         .collect();
     assert!(summary_line.contains("3 items"), "{summary_line:?}");
-    assert!(summary_line.contains("Alt+V"), "{summary_line:?}");
+    assert!(
+        summary_line.contains("Alt+V opens full list"),
+        "{summary_line:?}"
+    );
 }
 
 #[test]
