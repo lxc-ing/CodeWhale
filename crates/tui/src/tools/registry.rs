@@ -11,6 +11,7 @@ use std::sync::{Arc, OnceLock};
 
 use std::path::{Path, PathBuf};
 
+use codewhale_protocol::runtime::DynamicToolSpec;
 use serde_json::Value;
 
 use crate::client::DeepSeekClient;
@@ -102,6 +103,7 @@ impl ToolRegistry {
     }
 
     /// Execute a tool by name with the given input.
+    #[allow(dead_code)]
     pub async fn execute(&self, name: &str, input: Value) -> Result<String, ToolError> {
         let tool = self
             .get(name)
@@ -222,6 +224,7 @@ impl ToolRegistry {
         tools.sort_by(|a, b| a.name().cmp(b.name()));
         tools
             .into_iter()
+            .filter(|tool| tool.model_visible())
             .map(|tool| {
                 let mut schema = tool.input_schema();
                 schema_sanitize::sanitize(&mut schema);
@@ -497,6 +500,16 @@ impl ToolRegistryBuilder {
         self
     }
 
+    #[must_use]
+    pub fn with_dynamic_tools(mut self, dynamic_tools: &[DynamicToolSpec]) -> Self {
+        for tool in dynamic_tools {
+            self = self.with_tool(Arc::new(super::dynamic::RuntimeDynamicTool::new(
+                tool.clone(),
+            )));
+        }
+        self
+    }
+
     /// Include file tools (read, write, edit, list).
     #[must_use]
     pub fn with_file_tools(self) -> Self {
@@ -713,11 +726,13 @@ impl ToolRegistryBuilder {
     /// NOT gated behind the web-search feature.
     #[must_use]
     pub fn with_web_tools(self) -> Self {
+        use super::dev_server_readiness::WaitForDevServerTool;
         use super::fetch_url::FetchUrlTool;
         use super::web_run::WebRunTool;
         use super::web_search::WebSearchTool;
         self.with_tool(Arc::new(WebSearchTool))
             .with_tool(Arc::new(FetchUrlTool))
+            .with_tool(Arc::new(WaitForDevServerTool))
             .with_tool(Arc::new(WebRunTool))
     }
 
@@ -915,7 +930,16 @@ impl ToolRegistryBuilder {
     /// when `tool_setup.rs` conditionally registers them on top of
     /// `with_agent_tools`.
     #[must_use]
+    #[allow(dead_code)] // legacy allow_shell convenience wrapper; used by tests, prod uses with_agent_tools_policy
     pub fn with_agent_tools(self, allow_shell: bool) -> Self {
+        self.with_agent_tools_policy(crate::worker_profile::ShellPolicy::from_legacy_allow_shell(
+            allow_shell,
+        ))
+    }
+
+    /// Include all agent tools under a typed shell policy.
+    #[must_use]
+    pub fn with_agent_tools_policy(self, shell_policy: crate::worker_profile::ShellPolicy) -> Self {
         let builder = self
             .with_file_tools()
             .with_note_tool()
@@ -937,7 +961,7 @@ impl ToolRegistryBuilder {
             .with_image_ocr_tools()
             .with_finance_tool();
 
-        if allow_shell {
+        if shell_policy.allows_shell() {
             builder.with_shell_tools().with_runtime_task_shell_tools()
         } else {
             builder
@@ -966,9 +990,33 @@ impl ToolRegistryBuilder {
         todo_list: super::todo::SharedTodoList,
         plan_state: super::plan::SharedPlanState,
     ) -> Self {
+        self.with_full_agent_surface_policy(
+            client,
+            model,
+            manager,
+            runtime,
+            crate::worker_profile::ShellPolicy::from_legacy_allow_shell(allow_shell),
+            todo_list,
+            plan_state,
+        )
+    }
+
+    /// Include the full agent surface under a typed shell policy.
+    #[must_use]
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_full_agent_surface_policy(
+        self,
+        client: Option<DeepSeekClient>,
+        model: String,
+        manager: super::subagent::SharedSubAgentManager,
+        runtime: super::subagent::SubAgentRuntime,
+        shell_policy: crate::worker_profile::ShellPolicy,
+        todo_list: super::todo::SharedTodoList,
+        plan_state: super::plan::SharedPlanState,
+    ) -> Self {
         let speech_client = client.clone();
         let speech_output_dir = runtime.speech_output_dir.clone();
-        self.with_agent_tools(allow_shell)
+        self.with_agent_tools_policy(shell_policy)
             .with_todo_tool(todo_list)
             .with_plan_tool(plan_state)
             .with_review_tool(client.clone(), model.clone())
@@ -1014,18 +1062,9 @@ impl ToolRegistryBuilder {
         manager: super::subagent::SharedSubAgentManager,
         runtime: super::subagent::SubAgentRuntime,
     ) -> Self {
-        use super::subagent::{AgentCloseTool, AgentEvalTool, AgentOpenTool, ToolAgentTool};
+        use super::subagent::AgentTool;
 
-        self.with_tool(Arc::new(AgentOpenTool::new(
-            manager.clone(),
-            runtime.clone(),
-        )))
-        .with_tool(Arc::new(AgentEvalTool::new(manager.clone())))
-        .with_tool(Arc::new(ToolAgentTool::new(
-            manager.clone(),
-            runtime.clone(),
-        )))
-        .with_tool(Arc::new(AgentCloseTool::new(manager)))
+        self.with_tool(Arc::new(AgentTool::new(manager, runtime)))
     }
 
     /// Build the registry with the given context.
@@ -1200,6 +1239,43 @@ mod tests {
         assert!(registry.contains("test_tool"));
         assert!(!registry.contains("nonexistent"));
         assert_eq!(registry.len(), 1);
+    }
+
+    #[test]
+    fn todo_aliases_stay_callable_but_hidden_from_model_catalog() {
+        let tmp = tempdir().expect("tempdir");
+        let ctx = ToolContext::new(tmp.path().to_path_buf());
+        let registry = ToolRegistryBuilder::new()
+            .with_todo_tool(crate::tools::todo::new_shared_todo_list())
+            .build(ctx);
+
+        for alias in ["todo_write", "todo_add", "todo_update", "todo_list"] {
+            assert!(registry.contains(alias), "{alias} should remain callable");
+        }
+
+        let api_names = registry
+            .to_api_tools()
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect::<Vec<_>>();
+
+        for canonical in [
+            "checklist_write",
+            "checklist_add",
+            "checklist_update",
+            "checklist_list",
+        ] {
+            assert!(
+                api_names.iter().any(|name| name == canonical),
+                "{canonical} should stay model-visible"
+            );
+        }
+        for alias in ["todo_write", "todo_add", "todo_update", "todo_list"] {
+            assert!(
+                api_names.iter().all(|name| name != alias),
+                "{alias} should be hidden from the model catalog"
+            );
+        }
     }
 
     #[test]
@@ -1560,9 +1636,10 @@ mod tests {
         let registry = ToolRegistryBuilder::new().with_web_tools().build(ctx);
 
         // finance was moved to with_finance_tool() in v0.8.49;
-        // with_web_tools() now only registers web search / fetch / web.run
+        // with_web_tools() registers web search/fetch plus local dev-server readiness.
         assert!(registry.contains("web_search"));
         assert!(registry.contains("fetch_url"));
+        assert!(registry.contains("wait_for_dev_server"));
         assert!(registry.contains("web.run"));
         assert!(!registry.contains("finance"));
     }
@@ -1613,6 +1690,23 @@ mod tests {
     }
 
     #[test]
+    fn agent_tools_with_shell_policy_readonly_includes_shell_tools() {
+        let tmp = tempdir().expect("tempdir");
+        let ctx = ToolContext::new(tmp.path().to_path_buf());
+
+        let registry = ToolRegistryBuilder::new()
+            .with_agent_tools_policy(crate::worker_profile::ShellPolicy::ReadOnly)
+            .build(ctx);
+
+        assert!(
+            registry.contains("exec_shell"),
+            "read-only shell policy should expose shell tools; execution enforces mutating-command denial"
+        );
+        assert!(registry.contains("task_shell_start"));
+        assert!(registry.contains("task_shell_wait"));
+    }
+
+    #[test]
     fn agent_tools_with_allow_shell_true_includes_shell_tools() {
         let tmp = tempdir().expect("tempdir");
         let ctx = ToolContext::new(tmp.path().to_path_buf());
@@ -1631,5 +1725,43 @@ mod tests {
             registry.contains("task_shell_wait"),
             "task_shell_wait should be included when allow_shell is true"
         );
+    }
+
+    /// #2683 — `exec_wait` and `exec_interact` are legacy aliases for
+    /// `exec_shell_wait` and `exec_shell_interact`. They must remain
+    /// callable (for saved transcript replay) but hidden from the
+    /// model-facing catalog.
+    #[test]
+    fn shell_alias_tools_hidden_from_model_catalog() {
+        let tmp = tempdir().expect("tempdir");
+        let ctx = ToolContext::new(tmp.path().to_path_buf());
+        let registry = ToolRegistryBuilder::new().with_shell_tools().build(ctx);
+
+        // Legacy aliases stay callable.
+        for alias in ["exec_wait", "exec_interact"] {
+            assert!(registry.contains(alias), "{alias} should remain callable");
+        }
+
+        let api_names: Vec<String> = registry
+            .to_api_tools()
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect();
+
+        // Canonical names are model-visible.
+        for canonical in ["exec_shell_wait", "exec_shell_interact"] {
+            assert!(
+                api_names.iter().any(|n| n == canonical),
+                "{canonical} should be model-visible"
+            );
+        }
+
+        // Legacy aliases are hidden.
+        for alias in ["exec_wait", "exec_interact"] {
+            assert!(
+                api_names.iter().all(|n| n != alias),
+                "{alias} should be hidden from the model catalog"
+            );
+        }
     }
 }

@@ -18,8 +18,8 @@ export interface RepoFacts {
 }
 
 export const FACTS: RepoFacts = {
-  "generatedAt": "2026-06-01T04:44:32.528Z",
-  "version": "0.8.48",
+  "generatedAt": "2026-06-24T09:06:20.600Z",
+  "version": "0.8.65",
   "crates": [
     "agent",
     "app-server",
@@ -35,7 +35,7 @@ export const FACTS: RepoFacts = {
     "state",
     "tools",
     "tui",
-    "tui-core"
+    "whaleflow"
   ],
   "sandboxBackends": [
     "bwrap",
@@ -49,6 +49,11 @@ export const FACTS: RepoFacts = {
       "id": "deepseek",
       "label": "DeepSeek",
       "env": "DEEPSEEK_API_KEY"
+    },
+    {
+      "id": "deepseek-anthropic",
+      "label": "DeepSeek Anthropic",
+      "env": "DEEPSEEK_API_KEY / ANTHROPIC_API_KEY"
     },
     {
       "id": "nvidia-nim",
@@ -101,6 +106,16 @@ export const FACTS: RepoFacts = {
       "env": "SILICONFLOW_API_KEY"
     },
     {
+      "id": "siliconflow-CN",
+      "label": "SiliconFlow CN",
+      "env": "SILICONFLOW_API_KEY"
+    },
+    {
+      "id": "arcee",
+      "label": "Arcee AI",
+      "env": "ARCEE_API_KEY"
+    },
+    {
       "id": "moonshot",
       "label": "Moonshot/Kimi",
       "env": "MOONSHOT_API_KEY / KIMI_API_KEY"
@@ -119,11 +134,56 @@ export const FACTS: RepoFacts = {
       "id": "ollama",
       "label": "Ollama",
       "env": "OLLAMA_API_KEY"
+    },
+    {
+      "id": "huggingface",
+      "label": "Hugging Face",
+      "env": "HUGGINGFACE_API_KEY / HF_TOKEN"
+    },
+    {
+      "id": "together",
+      "label": "Together AI",
+      "env": "TOGETHER_API_KEY"
+    },
+    {
+      "id": "qianfan",
+      "label": "Baidu Qianfan",
+      "env": "QIANFAN_API_KEY / BAIDU_QIANFAN_API_KEY"
+    },
+    {
+      "id": "openai-codex",
+      "label": "OpenAI Codex",
+      "env": "ChatGPT/Codex OAuth via `codex login` (OPENAI_CODEX_ACCESS_TOKEN / CODEX_ACCESS_TOKEN override)"
+    },
+    {
+      "id": "anthropic",
+      "label": "Anthropic",
+      "env": "ANTHROPIC_API_KEY"
+    },
+    {
+      "id": "zai",
+      "label": "Z.ai",
+      "env": "ZAI_API_KEY / Z_AI_API_KEY"
+    },
+    {
+      "id": "stepfun",
+      "label": "StepFun",
+      "env": "STEPFUN_API_KEY / STEP_API_KEY"
+    },
+    {
+      "id": "minimax",
+      "label": "MiniMax",
+      "env": "MINIMAX_API_KEY"
+    },
+    {
+      "id": "deepinfra",
+      "label": "DeepInfra",
+      "env": "DEEPINFRA_API_KEY / DEEPINFRA_TOKEN"
     }
   ],
   "defaultModel": "deepseek-v4-pro",
   "nodeEngines": ">=18",
-  "toolCount": 75,
+  "toolCount": 78,
   "license": "MIT",
   "latestRelease": null
 };

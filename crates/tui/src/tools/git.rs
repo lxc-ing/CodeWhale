@@ -329,10 +329,11 @@ mod tests {
     fn init_git_repo(root: &Path) {
         let run = |args: &[&str]| {
             let status = crate::dependencies::Git::status(args, root).expect("git should spawn");
-            assert!(status.success(), "git {:?} failed", args);
+            assert!(status.success(), "git {args:?} failed");
         };
 
         run(&["init", "-q"]);
+        run(&["config", "core.autocrlf", "false"]);
         run(&["config", "user.email", "test@example.com"]);
         run(&["config", "user.name", "Test User"]);
     }
@@ -340,7 +341,7 @@ mod tests {
     fn commit_all(root: &Path, message: &str) {
         let run = |args: &[&str]| {
             let status = crate::dependencies::Git::status(args, root).expect("git should spawn");
-            assert!(status.success(), "git {:?} failed", args);
+            assert!(status.success(), "git {args:?} failed");
         };
         run(&["add", "."]);
         run(&["commit", "-q", "-m", message]);

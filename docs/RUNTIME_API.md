@@ -1,22 +1,38 @@
 # Runtime API & Integration Contract
 
-codewhale exposes a local runtime API through `codewhale serve --http` and
-machine-readable health via `codewhale doctor --json`. It also exposes
-`codewhale serve --acp` for editor clients that speak the Agent Client Protocol
-over stdio. This document is the stable integration contract for native macOS
-workbench applications (and other local supervisors) that embed the DeepSeek
-engine without screen-scraping terminal output.
+`codewhale app-server` is the canonical local runtime API and control plane.
+Local SDKs, mobile/remote-control clients, and editor integrations talk to it
+instead of screen-scraping terminal output. It serves the full HTTP/SSE runtime
+API (`/v1/*`), a JSON-RPC control transport over stdio, and the phone-friendly
+mobile page. `codewhale doctor --json` provides machine-readable health, and
+`codewhale serve --acp` speaks the Agent Client Protocol over stdio for editors
+such as Zed.
+
+`codewhale serve --http` / `serve --mobile` remain as **compatibility aliases**
+for `codewhale app-server --http` / `--mobile`; both launch the identical
+server. New integrations should target `app-server`.
+
+`codewhale exec` is the separate one-shot headless worker path (stream-json,
+fleet worker subprocess, CI primitive). It is not part of this API, but it
+shares the same runtime, provider/model resolution, permission profiles, and
+event vocabulary.
+
+This document is the stable integration contract for native workbench
+applications (and other local supervisors) that embed the DeepSeek engine.
 
 ## Architecture
 
 ```
-macOS workbench (or any local supervisor)
+local supervisor / SDK / automation harness
         │
-        ├─ codewhale doctor --json   → machine-readable health & capability
-        ├─ codewhale serve --http    → HTTP/SSE runtime API
-        ├─ codewhale serve --acp     → ACP stdio agent for editors such as Zed
-        ├─ codewhale serve --mcp     → MCP stdio server
-        └─ codewhale [args]          → interactive TUI session
+        ├─ codewhale app-server --http     → HTTP/SSE runtime API (/v1/*)        [canonical]
+        ├─ codewhale app-server --mobile   → runtime API + mobile control page
+        ├─ codewhale app-server --stdio    → JSON-RPC control transport over stdio
+        ├─ codewhale doctor --json         → machine-readable health & capability
+        ├─ codewhale serve --acp           → ACP stdio agent for editors such as Zed
+        ├─ codewhale serve --mcp           → MCP stdio server
+        ├─ codewhale serve --http/--mobile → legacy aliases for `app-server --http/--mobile`
+        └─ codewhale exec [args]           → one-shot headless worker (stream-json)
 ```
 
 The engine runs as a local-only process. All APIs bind to `localhost` by
@@ -25,6 +41,86 @@ default. No hosted relay, no provider-token custody, no secret leakage.
 For a proposed read-only audit export over completed turns, see
 [`docs/RECEIPTS.md`](RECEIPTS.md). That document is a protocol note; the receipt
 CLI/API surfaces are not implemented yet.
+
+## Runtime API entrypoints
+
+| Entry | Transport | Use |
+|---|---|---|
+| `codewhale app-server --http` | HTTP/SSE on `127.0.0.1:7878` | Full `/v1/*` runtime API (canonical) |
+| `codewhale app-server --mobile` | HTTP/SSE on `0.0.0.0:7878` + `/mobile` | Runtime API + phone control page |
+| `codewhale app-server --stdio` | JSON-RPC 2.0 over stdio | Local SDK / control probe (no listener) |
+| `codewhale app-server` | HTTP on `127.0.0.1:8787` | Legacy in-process app-server (`/healthz`, `/thread`, `/app`, `/prompt`, `/tool`, `/jobs`) |
+| `codewhale serve --http` / `--mobile` | same server as `app-server --http`/`--mobile` | Compatibility aliases |
+
+`app-server --http` and `--mobile` launch the same mature runtime API server
+historically reached through `serve --http` — no routes or behavior changed, so
+every endpoint documented below is identical across both entrypoints. The
+runtime API token is read from `--auth-token`, then `CODEWHALE_RUNTIME_TOKEN`,
+then `DEEPSEEK_RUNTIME_TOKEN`; use `--insecure-no-auth` only with a loopback
+bind. The `serve` compatibility aliases keep their `--insecure` flag.
+The legacy in-process `codewhale app-server` also requires an explicit
+`--auth-token` or `CODEWHALE_APP_SERVER_TOKEN` before binding a non-loopback
+host; its generated one-time `cwapp_*` token is loopback-only.
+
+The `--stdio` control transport is newline-delimited JSON-RPC 2.0. Probe it
+without spending model tokens:
+
+```bash
+printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"healthz"}' \
+  '{"jsonrpc":"2.0","id":2,"method":"capabilities"}' \
+  '{"jsonrpc":"2.0","id":3,"method":"shutdown"}' \
+  | codewhale app-server --stdio
+```
+
+`capabilities` returns the advertised method families (`thread/*`, `app/*`,
+`prompt/*`) and the full method list; `thread/capabilities`,
+`app/capabilities`, and `prompt/capabilities` scope it per family. The method
+set is pinned by a drift test in `crates/app-server/src/lib.rs`, so SDK and
+local integration clients can rely on it not changing silently.
+
+## SDK contract
+
+The app-server exists so an external SDK can answer — without scraping TUI
+output — *what route ran, which provider/model/reasoning/permission profile was
+effective, what events happened, how many tokens were used, and how the run
+finished.* The durable Thread/Turn/Item data model already carries most of
+this; the table maps each integration need to where a local client reads it.
+
+| Integration need | Where it comes from | Status |
+|---|---|---|
+| Route / effective model | `TurnRecord` + thread `model`; per-run `--provider`/`--model` overrides | available |
+| Permission / sandbox / approval profile | thread `auto_approve`, sandbox + approval policy | available |
+| Run / thread / turn IDs | `thread_id`, `turn_id`, SSE event envelope | available |
+| Event stream | `GET /v1/threads/{id}/events` (replay + live SSE) | available |
+| Turn status / terminal classification | `TurnRecord.status` + error summary | available |
+| Token usage | `TurnRecord.usage`; aggregate via `GET /v1/usage` | available |
+| Single-read run receipt (route + usage + cost) | `GET /v1/threads/{id}/turns/{turn_id}/receipt` | proposed ([RECEIPTS.md](RECEIPTS.md)) |
+
+For one-shot/headless automation, prefer `codewhale exec` with explicit
+`--provider <id> --model <id>` so a failure identifies the exact provider/model
+pair. Use `app-server` when a local integration needs to start, resume, steer,
+or interrupt turns, list models/capabilities, follow the event stream, or read
+usage. Both paths share the same runtime, so route-effective model resolution
+and the event vocabulary match.
+
+### Release smoke
+
+`scripts/release/app-server-smoke.sh` is the committed pre-release check:
+
+```bash
+scripts/release/app-server-smoke.sh                 # stdio health/capabilities probe (no tokens)
+scripts/release/app-server-smoke.sh --matrix        # + print the configured provider/model matrix
+scripts/release/app-server-smoke.sh --matrix --real # + exec a cheap sentinel per provider
+```
+
+The stdio probe runs against a throwaway config, so it never reads real keys.
+The matrix discovers configured providers from `codewhale auth list`, maps each
+to a cheap model (override per provider with `SMOKE_MODEL_<SLUG>`), skips
+unconfigured providers, and fails loudly on unmapped ones. `auth list` reports
+presence flags only and exec output is passed through a redactor, so secrets are
+never printed. The parser is covered by
+`scripts/release/app-server-smoke.test.sh` against a fake `codewhale` binary.
 
 ## ACP stdio adapter: `codewhale serve --acp`
 
@@ -62,6 +158,12 @@ codewhale doctor --json
 | `config_path` | string | Resolved config file path |
 | `config_present` | bool | Whether the config file exists |
 | `workspace` | string | Default workspace directory |
+| `legacy_state.primary_root` | string | Primary CodeWhale state root inspected for known state paths |
+| `legacy_state.legacy_root` | string | Legacy `.deepseek` state root inspected for known state paths |
+| `legacy_state.needs_attention` | bool | Whether known `~/.deepseek` state paths are unmigrated or also present beside `~/.codewhale` |
+| `legacy_state.legacy_only_count` | number | Count of known state paths present only under the legacy root |
+| `legacy_state.dual_present_count` | number | Count of known state paths present under both primary and legacy roots |
+| `legacy_state.entries` | array | Per-path migration status: `{name, primary_present, legacy_present, status}` |
 | `api_key.source` | string | `env`, `config`, or `missing` |
 | `base_url` | string | API base URL |
 | `default_text_model` | string | Default model |
@@ -117,11 +219,16 @@ codewhale doctor --json
 }
 ```
 
-## HTTP/SSE runtime API: `codewhale serve --http`
+## HTTP/SSE runtime API: `codewhale app-server --http`
 
 ```bash
-codewhale serve --http [--host 127.0.0.1] [--port 7878] [--workers 2] [--auth-token TOKEN]
-codewhale serve --mobile [--host 0.0.0.0] [--port 7878] [--auth-token TOKEN]
+codewhale app-server --http [--host 127.0.0.1] [--port 7878] [--workers 2] [--auth-token TOKEN] [--insecure-no-auth]
+codewhale app-server --mobile [--host 0.0.0.0] [--port 7878] [--auth-token TOKEN]
+codewhale app-server --mobile --host 127.0.0.1 [--port 7878] [--insecure-no-auth]
+
+# Compatibility aliases — identical server, serve flag names:
+codewhale serve --http   [...] [--insecure]
+codewhale serve --mobile [...] [--insecure]
 ```
 
 Defaults: host `127.0.0.1`, port `7878`, 2 workers (clamped 1–8).
@@ -129,7 +236,12 @@ Defaults: host `127.0.0.1`, port `7878`, 2 workers (clamped 1–8).
 The server binds to `localhost` by default. Configuration is via CLI flags —
 there is no `[app_server]` config section.
 
-`/v1/*` routes require a bearer token unless `--insecure` is explicitly set.
+`/v1/*` routes require a bearer token unless `codewhale app-server` is started
+with `--insecure-no-auth` on a loopback bind such as `127.0.0.1`. Do not combine
+no-auth mode with the `--mobile` default host `0.0.0.0`; use a token for LAN
+mobile access, or add `--host 127.0.0.1` for local-only no-auth testing. The
+`codewhale serve` compatibility aliases use `--insecure` for the same loopback
+escape hatch.
 Pass `--auth-token TOKEN` or set `DEEPSEEK_RUNTIME_TOKEN=TOKEN` before starting
 the server. If neither is set, the process generates a one-time token and prints
 it at startup. `/health` and `/v1/runtime/info` remain public for local
@@ -178,6 +290,36 @@ fronting layer.
 - `POST /v1/threads/{id}/resume`
 - `POST /v1/threads/{id}/fork`
 
+`GET /v1/threads/summary` is the read-only summary surface used by the VS Code
+Agent View. Each item includes `id`, `title`, `preview`, `model`, `mode`,
+`archived`, `updated_at`, `latest_turn_id`, `latest_turn_status`, plus
+workspace metadata:
+
+```json
+{
+  "id": "thread_...",
+  "title": "Implement MCP status count",
+  "preview": "The TUI footer should count project MCP servers...",
+  "model": "deepseek-v4-pro",
+  "mode": "agent",
+  "branch": "feature/runtime-api",
+  "head": "abc1234",
+  "dirty": false,
+  "workspace": "/Users/you/projects/codewhale",
+  "archived": false,
+  "updated_at": "2026-06-06T05:43:00Z",
+  "latest_turn_id": "turn_...",
+  "latest_turn_status": "completed"
+}
+```
+
+`branch` is resolved from the thread workspace at request time and may be
+`null` when the workspace is not a Git repository or the branch cannot be read.
+`head` is the current short Git commit for that workspace when available.
+`dirty` is true when the workspace has staged, unstaged, or untracked changes.
+`workspace` is included so editor clients can show when an agent lane is working
+outside the current VS Code folder.
+
 Thread forks are sibling runtime threads, not an in-place tree projection.
 `thread.forked` events include `source_thread_id`; internal backtrack-aware
 forks may also include `backtrack_depth_from_tail` and `dropped_turn_id`.
@@ -218,6 +360,28 @@ accept an empty string to clear a previously-set value. Added in v0.8.10 (#562):
 
 **Events** (SSE replay + live stream)
 - `GET /v1/threads/{id}/events?since_seq=<u64>`
+
+**Snapshots** (read-only side-git restore point listing)
+- `GET /v1/snapshots?limit=20`
+
+`/v1/snapshots` lists recent side-git restore points for the runtime workspace.
+It is read-only and does not restore files. `limit` defaults to `20` and must be
+between `1` and `100`.
+
+```json
+[
+  {
+    "id": "snap_...",
+    "label": "post-turn:1",
+    "timestamp": 1780730580
+  }
+]
+```
+
+Runtime API restore/retry/undo/editor-apply mutation endpoints are intentionally
+deferred. GUI clients should treat thread summaries and snapshots as inspection
+surfaces until atomic filesystem + conversation-state mutation semantics are
+specified and tested.
 
 **Receipts** (future read-only audit export)
 - Proposed only: `GET /v1/threads/{thread_id}/turns/{turn_id}/receipt`
@@ -289,7 +453,7 @@ tokens but `0.0` cost. Added in v0.8.10 (#564).
 The runtime uses a durable Thread/Turn/Item lifecycle.
 
 - **ThreadRecord** — `id`, `created_at`, `updated_at`, `model`, `workspace`,
-  `mode`, `task_id`, `coherence_state`, `system_prompt`, `latest_turn_id`,
+  `mode`, `task_id`, `system_prompt`, `latest_turn_id`,
   `latest_response_bookmark`, `archived`
 - **TurnRecord** — `id`, `thread_id`, `status` (`queued|in_progress|completed|
   failed|interrupted|canceled`), timestamps, duration, usage, error summary
@@ -353,7 +517,11 @@ Common event names: `thread.started`, `thread.forked`, `turn.started`,
 `turn.lifecycle`, `turn.steered`, `turn.interrupt_requested`,
 `turn.completed`, `item.started`, `item.delta`, `item.completed`,
 `item.failed`, `item.interrupted`, `approval.required`, `approval.decided`,
-`approval.timeout`, `sandbox.denied`, `coherence.state`.
+`approval.timeout`, `sandbox.denied`.
+
+`approval.required` events may include a `matched_rule` string when an
+execution-policy rule caused the prompt. This field is explanatory metadata for
+clients and does not grant or persist permissions.
 
 ## Security boundary
 
@@ -394,6 +562,72 @@ User-supplied origins **stack on top of** the built-in defaults; they do not
 replace them. Wildcard origins are not supported — the explicit allow-list
 model is preserved. Added in v0.8.10 (#561).
 
+## Runtime SDK Fleet Helpers
+
+The v0.8.60 Runtime SDK fixture lives in `npm/runtime-sdk` and is exposed as
+the `@codewhale/runtime-sdk` workspace package. It is deliberately thin: every
+helper calls the local Rust Runtime API and therefore cannot bypass CodeWhale's
+sandbox, approval prompts, provider configuration, or fleet ledger authority.
+
+```js
+import { createRuntimeClient } from "@codewhale/runtime-sdk";
+
+const client = createRuntimeClient({
+  baseUrl: "http://127.0.0.1:7878",
+  token: process.env.CODEWHALE_RUNTIME_TOKEN,
+});
+
+const { runs } = await client.listFleetRuns();
+const workers = await client.listFleetWorkers(runs[0].id);
+await client.restartWorker(workers.workers[0].worker_id);
+```
+
+Fleet helpers cover the v0.8.60 HTTP surface:
+
+| Helper | Runtime API route |
+|---|---|
+| `listFleetRuns()` | `GET /v1/fleet/runs` |
+| `getFleetRun(runId)` | `GET /v1/fleet/runs/{run_id}` |
+| `listFleetWorkers(runId)` | `GET /v1/fleet/runs/{run_id}/workers` |
+| `getFleetWorker(workerId)` | `GET /v1/fleet/workers/{worker_id}` |
+| `interruptWorker(workerId)` | `POST /v1/fleet/workers/{worker_id}/interrupt` |
+| `restartWorker(workerId)` | `POST /v1/fleet/workers/{worker_id}/restart` |
+| `stopFleetRun(runId)` | `POST /v1/fleet/runs/{run_id}/stop` |
+
+`createFleetRun(spec)` and `fleetEvents(runId)` are typed ahead of the current
+Rust routes so editor/web clients can code against the intended SDK contract.
+Until the Runtime API exposes `POST /v1/fleet/runs` and a fleet event stream,
+the SDK raises `RuntimeCapabilityError` with stable capability strings
+(`fleet_run_create`, `fleet_event_stream`) instead of surfacing those gaps as
+generic fetch failures.
+
+Verification:
+
+```bash
+npm test --workspace @codewhale/runtime-sdk
+```
+
+## Agent Run Receipts
+
+Sub-agent lanes persist compact run receipts in
+`.codewhale/state/subagents.v1.json`. The Runtime API exposes those receipts as
+a read-only inspection surface:
+
+| Operation | Endpoint |
+|---|---|
+| List persisted agent runs | `GET /v1/agent-runs` |
+| Inspect one run | `GET /v1/agent-runs/{run_id}` |
+
+The response is the same worker-record shape surfaced by `agent` receipts:
+`spec.run_id`, `actor_kind`, lifecycle `status`, bounded `events`,
+`follow_up`, `takeover`, `artifacts`, `usage`, and `verification`. `run_id`
+falls back to the worker id for older records, and `{run_id}` may be either the
+run id or the worker id.
+
+These endpoints do not start, cancel, or steer sub-agents. The API surface
+exists so app/editor/headless clients can inspect the same handoff receipts that
+the TUI and parent model see.
+
 ## Session lifecycle (native UI supervision)
 
 | Operation | Endpoint |
@@ -420,3 +654,18 @@ cargo test -p codewhale-protocol --test parity_protocol --locked
 
 This validates that the app-server's event schema hasn't drifted from the
 documented contract. CI runs this on every push to `main` and on release tags.
+
+The app-server stdio control surface has its own drift guard — the advertised
+`capabilities` method set is pinned in `crates/app-server/src/lib.rs`:
+
+```bash
+cargo test -p codewhale-app-server capabilities
+```
+
+Before a release, run the headless smoke (stdio probe + optional provider
+matrix, no secrets leaked):
+
+```bash
+scripts/release/app-server-smoke.sh --matrix        # dry-run plan
+bash scripts/release/app-server-smoke.test.sh       # parser self-test (fake binary)
+```

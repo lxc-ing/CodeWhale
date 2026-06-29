@@ -36,20 +36,20 @@ pub struct CompactionConfig {
 impl Default for CompactionConfig {
     fn default() -> Self {
         Self {
-            // ON BY DEFAULT since v0.8.6 (#402 P0 survivability) — but the
-            // engine-level `auto_compact` setting was flipped OFF in v0.8.11
-            // (#665) so this default is mostly a fallback for code paths
-            // that build a `CompactionConfig` without going through
-            // `compaction_threshold_for_model_and_effort`. Real per-model
-            // values are still derived through that helper.
+            // ON BY DEFAULT since v0.8.6 (#402 P0 survivability). v0.8.64
+            // resolves the user-facing default through the active model's
+            // known context window, while explicit `auto_compact = false`
+            // remains the opt-out. This fallback covers code paths that build
+            // a `CompactionConfig` directly; real per-model values are still
+            // derived through the threshold helpers.
             enabled: true,
             // v0.8.11: 50K was a 128K-era leftover that biased every
             // unconfigured caller toward "compact almost immediately on V4."
             // Bumped to 800K (80% of V4's 1M window) so the dead-code
             // default matches the hard automatic compaction guardrail. This
             // is intentionally later than the model-visible 60% "suggest
-            // /compact during sustained work" guidance; automatic replacement
-            // compaction rewrites the cacheable prefix and remains opt-in.
+            // /compact during sustained work" guidance so automatic
+            // replacement compaction stays a late continuity guardrail.
             // Real call sites override this via
             // `compaction_threshold_for_model_and_effort`.
             token_threshold: 800_000,
@@ -450,6 +450,7 @@ pub fn plan_compaction(
     }
 }
 
+#[allow(dead_code)]
 fn enforce_tool_call_pairs(messages: &[Message], pinned_indices: &mut BTreeSet<usize>) {
     if pinned_indices.is_empty() {
         return;
@@ -556,7 +557,7 @@ fn estimate_tokens_for_message(message: &Message, include_thinking: bool) -> usi
             ContentBlock::Text { text, .. } => text.len() / 4,
             // Historical reasoning blocks are UI/session metadata for DeepSeek.
             // Only current-turn tool-call reasoning is sent back to the API.
-            ContentBlock::Thinking { thinking } if include_thinking => thinking.len() / 4,
+            ContentBlock::Thinking { thinking, .. } if include_thinking => thinking.len() / 4,
             ContentBlock::Thinking { .. } => 0,
             ContentBlock::ToolUse { input, .. } => serde_json::to_string(input)
                 .map(|s| s.len() / 4)
@@ -587,7 +588,7 @@ fn message_has_tool_use(message: &Message) -> bool {
         .any(|block| matches!(block, ContentBlock::ToolUse { .. }))
 }
 
-fn estimate_text_tokens_conservative(text: &str) -> usize {
+pub fn estimate_text_tokens_conservative(text: &str) -> usize {
     text.chars().count().div_ceil(3)
 }
 
@@ -848,6 +849,7 @@ pub struct CompactionResult {
     /// Summary system prompt
     pub summary_prompt: Option<SystemPrompt>,
     /// Messages that were removed from the active window
+    // TODO(v0.8.71): kept for replay compatibility; dead in production, see #3490
     #[allow(dead_code)]
     pub removed_messages: Vec<Message>,
     /// Number of retries used before success
@@ -1907,6 +1909,7 @@ mod tests {
                 role: "assistant".to_string(),
                 content: vec![
                     ContentBlock::Thinking {
+                        signature: None,
                         thinking: thinking.clone(),
                     },
                     ContentBlock::ToolUse {

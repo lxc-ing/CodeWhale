@@ -9,11 +9,16 @@ DeepSeek provider integration changed — only the local CLI / TUI brand.
 
 ```bash
 # 1. Uninstall the old wrapper or binaries.
-npm uninstall -g deepseek-tui      # or cargo uninstall deepseek-tui-cli deepseek-tui
-                                    # or brew uninstall deepseek-tui
+npm uninstall -g deepseek-tui      # or:
+cargo uninstall deepseek-tui-cli 2>/dev/null || true
+cargo uninstall deepseek-tui 2>/dev/null || true
+                                    # legacy Homebrew installs may use:
+                                    # brew upgrade deepseek-tui
 
 # 2. Install under the new name.
-npm install -g codewhale            # or cargo install codewhale-cli codewhale-tui --locked
+npm install -g codewhale            # or:
+cargo install codewhale-cli --locked
+cargo install codewhale-tui --locked
                                     # legacy Homebrew installs may still use
                                     # brew install deepseek-tui until the tap
                                     # formula is renamed.
@@ -69,10 +74,10 @@ Anything that targets the DeepSeek provider API stays exactly as it was:
   Docker, or direct downloads.
 - **Docker image**: `ghcr.io/hmbown/codewhale`.
 
-## Deprecation shims (through v0.8.x)
+## Deprecation shims (removed in v0.9.0)
 
 To keep existing shell aliases, scripts, and CI working through the rename,
-v0.8.41 and later v0.8.x releases ship **deprecation shims**:
+v0.8.41 and later v0.8.x releases shipped **deprecation shims**:
 
 - A `deepseek` binary that prints a one-line warning to stderr and forwards
   argv to `codewhale`.
@@ -80,7 +85,9 @@ v0.8.41 and later v0.8.x releases ship **deprecation shims**:
 - The legacy `deepseek-tui` npm package is deprecated and no longer receives
   new releases. Install the `codewhale` npm package instead.
 
-These shims will be removed in **v0.9.0**. Please migrate before then.
+These binary shims are removed in **v0.9.0**. DeepSeek provider support, model
+IDs, `DEEPSEEK_*` environment variables, and legacy `~/.deepseek/` state
+fallbacks remain supported.
 
 ## Migrating in practice
 
@@ -94,8 +101,10 @@ npm install -g codewhale
 ### Cargo
 
 ```bash
-cargo uninstall deepseek-tui-cli deepseek-tui 2>/dev/null || true
-cargo install codewhale-cli codewhale-tui --locked
+cargo uninstall deepseek-tui-cli 2>/dev/null || true
+cargo uninstall deepseek-tui 2>/dev/null || true
+cargo install codewhale-cli --locked
+cargo install codewhale-tui --locked
 ```
 
 Or in a checkout:
@@ -104,6 +113,19 @@ Or in a checkout:
 cargo install --path crates/cli --locked --force
 cargo install --path crates/tui --locked --force
 ```
+
+### Legacy `deepseek update`
+
+Current v0.8.x compatibility binaries recognize when they are running under a
+legacy `deepseek` or `deepseek-tui` filename. In that case, `deepseek update`
+or `deepseek-tui update` downloads the canonical CodeWhale release assets and
+installs them beside the legacy binary as `codewhale` and `codewhale-tui` when
+the install directory is writable.
+
+If that update path cannot write to the install directory, use the npm, Cargo,
+Homebrew, or manual reinstall commands above. The legacy npm package
+`deepseek-tui` remains deprecated and is not republished; npm users should move
+to `npm install -g codewhale`.
 
 ### Homebrew
 
@@ -114,15 +136,12 @@ downloads until the formula and tap repo are renamed.
 
 ### Manual / GitHub Releases
 
-`v0.8.41` Releases attach **both** the canonical `codewhale-*` /
-`codewhale-tui-*` assets and the legacy `deepseek-*` / `deepseek-tui-*`
-shim assets. Existing `deepseek update` invocations on v0.8.40 keep working;
-they land you on the deprecation shim, which then prompts the install of
-`codewhale`.
-
-A second checksum manifest, `deepseek-artifacts-sha256.txt`, is attached as
-an alias of `codewhale-artifacts-sha256.txt` so v0.8.40's hardcoded lookup
-still verifies.
+`v0.8.41` through `v0.8.x` Releases attached both the canonical
+`codewhale-*` / `codewhale-tui-*` assets and compatibility-only
+`deepseek-*` / `deepseek-tui-*` shim assets. Starting in v0.9.0, Releases attach
+only the canonical `codewhale-*` / `codewhale-tui-*` assets and the canonical
+`codewhale-artifacts-sha256.txt` checksum manifest. Install or update through
+`codewhale` before moving to v0.9.0.
 
 ### Sessions, skills, and manual workspaces
 

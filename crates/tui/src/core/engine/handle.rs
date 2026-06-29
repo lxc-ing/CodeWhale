@@ -51,6 +51,24 @@ impl EngineHandle {
         }
     }
 
+    /// Pause or resume the current pausable command.
+    pub fn set_paused(&self, paused: bool) {
+        match self.shared_paused.lock() {
+            Ok(mut slot) => *slot = paused,
+            Err(poisoned) => *poisoned.into_inner() = paused,
+        }
+    }
+
+    /// Check whether the engine pause gate is set.
+    #[cfg(test)]
+    #[must_use]
+    pub fn is_paused(&self) -> bool {
+        match self.shared_paused.lock() {
+            Ok(slot) => *slot,
+            Err(poisoned) => *poisoned.into_inner(),
+        }
+    }
+
     /// Approve a pending tool call
     pub async fn approve_tool_call(&self, id: impl Into<String>) -> Result<()> {
         self.tx_approval
@@ -109,5 +127,27 @@ impl EngineHandle {
     pub async fn steer(&self, content: impl Into<String>) -> Result<()> {
         self.tx_steer.send(content.into()).await?;
         Ok(())
+    }
+
+    /// Request a snapshot of the current session state.
+    /// Returns the snapshot directly via a oneshot channel, avoiding
+    /// competition with the SSE event stream on the mpsc receiver.
+    pub async fn get_session_snapshot(&self) -> Result<crate::core::ops::SessionSnapshot> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let tx = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
+        self.send(Op::GetSessionSnapshot { tx }).await?;
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Engine dropped session snapshot oneshot"))
+    }
+
+    /// Request active provider request concurrency state.
+    pub async fn get_provider_runtime_status(
+        &self,
+    ) -> Result<crate::core::ops::ProviderRuntimeStatus> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let tx = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
+        self.send(Op::GetProviderRuntimeStatus { tx }).await?;
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Engine dropped provider runtime status oneshot"))
     }
 }
